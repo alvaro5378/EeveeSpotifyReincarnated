@@ -2,7 +2,8 @@ import Foundation
 
 // Spotify 9.2.0: ResolvedHome.structure (1) -> HomeStructure.sections (1).
 // Section contains sectionInfo (1) and a feature oneof: shortcuts is field 2,
-// anchors is field 7. Both quick-access formats are retained.
+// anchors is field 7. ImageLink shelves (3) have Heading in field 1.
+// All sections are retained unless their actual heading matches the user's list.
 // Slot-content responses carry repeated Section directly in field 1.
 // See Tests/HomeFeedFilter/README.md for the client-side schema evidence.
 enum HomeFeedFilter {
@@ -20,17 +21,18 @@ enum HomeFeedFilter {
             || path == "/casita/v1-beta/slot-content" || path.hasPrefix("/casita/v1-beta/slot-content/")
     }
 
-    static func filter(_ data: Data, url: URL) -> Result? {
+    static func filter(_ data: Data, url: URL, hiddenTitles: [String] = HomeShelfPolicy.defaultHiddenTitles) -> Result? {
         guard handles(url), !data.isEmpty, data.count <= 4 * 1024 * 1024,
               let fields = parse(data) else { return nil }
         // Try the direct Section list before the wrapped ResolvedHome form.
-        if let result = filterSections(data, fields: fields) { return result.removed > 0 ? result : nil }
+        let policy = HomeShelfPolicy(hiddenTitles: hiddenTitles)
+        if let result = filterSections(data, fields: fields, policy: policy) { return result.removed > 0 ? result : nil }
         let structures = fields.filter { $0.number == 1 }
         guard structures.count == 1, let structure = structures.first,
               let range = structure.payload else { return nil }
         let original = data.subdata(in: range)
         guard let innerFields = parse(original),
-              let result = filterSections(original, fields: innerFields), result.removed > 0 else { return nil }
+              let result = filterSections(original, fields: innerFields, policy: policy), result.removed > 0 else { return nil }
         var rebuilt = Data()
         for field in fields {
             if field.range == structure.range {
@@ -64,21 +66,44 @@ enum HomeFeedFilter {
         return output
     }
 
-    private static func filterSections(_ data: Data, fields: [Field]) -> Result? {
+    private static func filterSections(_ data: Data, fields: [Field], policy: HomeShelfPolicy) -> Result? {
         let sections = fields.filter { $0.number == 1 }
         guard !sections.isEmpty else { return nil }
         var remove = Set<Int>()
-        var kept = 0
+        var recognized = 0
         for section in sections {
-            guard let payload = section.payload,
-                  let kind = sectionKind(data.subdata(in: payload)) else { return nil }
-            if kind == 2 || kind == 7 { kept += 1 } else { remove.insert(section.range.lowerBound) }
+            guard let payload = section.payload else { return nil }
+            let bytes = data.subdata(in: payload)
+            guard let kind = sectionKind(bytes) else { continue }
+            recognized += 1
+            if kind == 3, let heading = imageLinkHeading(bytes), policy.hides(heading.title, sponsored: heading.sponsored) {
+                remove.insert(section.range.lowerBound)
+            }
         }
+        guard recognized > 0 else { return nil }
         var result = Data()
         for field in fields where !remove.contains(field.range.lowerBound) {
             result.append(data.subdata(in: field.range))
         }
-        return Result(data: result, kept: kept, removed: remove.count)
+        return Result(data: result, kept: sections.count - remove.count, removed: remove.count)
+    }
+
+    private static func imageLinkHeading(_ section: Data) -> (title: String, sponsored: Bool)? {
+        guard let sectionFields = parse(section), let featureRange = sectionFields.first(where: { $0.number == 3 })?.payload else { return nil }
+        let imageLink = section.subdata(in: featureRange)
+        guard let imageFields = parse(imageLink) else { return nil }
+        let headings = imageFields.filter { $0.number == 1 }
+        guard headings.count == 1, let headingRange = headings[0].payload else { return nil }
+        let heading = imageLink.subdata(in: headingRange)
+        guard let headingFields = parse(heading), headingFields.count == 1,
+              let variant = headingFields.first, (2...6).contains(variant.number), let contentRange = variant.payload else { return nil }
+        let content = heading.subdata(in: contentRange)
+        guard let contentFields = parse(content) else { return nil }
+        let texts = contentFields.filter { $0.number == 1 }
+        if texts.isEmpty, variant.number == 4 { return ("", true) }
+        guard texts.count == 1, let textRange = texts[0].payload,
+              let title = String(data: content.subdata(in: textRange), encoding: .utf8) else { return nil }
+        return (title, variant.number == 4)
     }
 
     private static func sectionKind(_ data: Data) -> UInt64? {

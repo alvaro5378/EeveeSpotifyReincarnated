@@ -2,7 +2,8 @@ import SwiftUI
 
 struct HomeSettingsView: View {
     @State private var hidden = Set(UserDefaults.homeHidden)
-    @State private var recommendationsHidden = UserDefaults.homeRecommendationsHidden
+    @State private var unwantedShelvesHidden = UserDefaults.homeUnwantedShelvesHidden
+    @State private var hiddenTitles = HomeShelfPolicy.sanitizedTitles(UserDefaults.homeHiddenShelfTitles)
 
     private static let rows: [(HomePart, String, Color)] = [
         (.pills, "rectangle.3.group.fill", .blue),
@@ -24,23 +25,29 @@ struct HomeSettingsView: View {
                 toggle(.episodeCarousels, icon: "mic.fill", color: Color(hex: "#30B0C7"))
             }
 
-            Section(footer: Text("home_recommendations_footer".localized)) {
-                SettingsToggle(title: "home_recommendations".localized, icon: "rectangle.stack.badge.minus", color: .blue,
-                               isOn: $recommendationsHidden)
+            Section(footer: Text("home_unwanted_shelves_footer".localized)) {
+                SettingsToggle(title: "home_unwanted_shelves".localized, icon: "rectangle.stack.badge.minus", color: .blue,
+                               isOn: $unwantedShelvesHidden)
+                SettingsLink(title: "home_hidden_shelf_titles".localized, icon: "list.bullet", color: .gray) {
+                    HomeHiddenShelfTitlesView(titles: $hiddenTitles)
+                }
             }
 
-            SettingsResetSection(visible: !hidden.isEmpty || recommendationsHidden) {
+            SettingsResetSection(visible: !hidden.isEmpty || unwantedShelvesHidden || hiddenTitles != HomeShelfPolicy.defaultHiddenTitles) {
                 hidden = []
-                recommendationsHidden = false
+                unwantedShelvesHidden = false
+                hiddenTitles = HomeShelfPolicy.defaultHiddenTitles
             }
 
-            RestartSection(visible: hidden != HomeDeclutter.launchHidden || recommendationsHidden != HomeFeedResponses.enabled)
+            RestartSection(visible: hidden != HomeDeclutter.launchHidden || unwantedShelvesHidden != HomeFeedResponses.enabled
+                           || hiddenTitles != HomeFeedResponses.hiddenTitles)
 
             SpacerView()
         }
         .eeveeSettingsStyle()
         .onChange(of: hidden) { UserDefaults.homeHidden = HomePart.allCases.filter($0.contains) }
-        .onChange(of: recommendationsHidden) { UserDefaults.homeRecommendationsHidden = $0 }
+        .onChange(of: unwantedShelvesHidden) { UserDefaults.homeUnwantedShelvesHidden = $0 }
+        .onChange(of: hiddenTitles) { UserDefaults.homeHiddenShelfTitles = HomeShelfPolicy.sanitizedTitles($0) }
     }
 
     private func toggle(_ part: HomePart, icon: String, color: Color) -> some View {

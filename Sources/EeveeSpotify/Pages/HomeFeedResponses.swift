@@ -2,11 +2,15 @@ import Foundation
 
 extension UserDefaults {
     @UserDefault(key: "eeveeHomeRecommendationsHidden", defaultValue: false)
-    static var homeRecommendationsHidden
+    static var homeUnwantedShelvesHidden
+
+    @UserDefault(key: "eeveeHomeHiddenShelfTitles", defaultValue: HomeShelfPolicy.defaultHiddenTitles)
+    static var homeHiddenShelfTitles
 }
 
 enum HomeFeedResponses {
-    static let enabled = UserDefaults.homeRecommendationsHidden
+    static let enabled = UserDefaults.homeUnwantedShelvesHidden
+    static let hiddenTitles = HomeShelfPolicy.sanitizedTitles(UserDefaults.homeHiddenShelfTitles)
     static let originalHooksEnabled = UserDefaults.patchType.isPatching
     private static let captures = HomeFeedCaptureStore<ObjectIdentifier>()
 
@@ -30,13 +34,17 @@ enum HomeFeedResponses {
         guard enabled, let capture = captures.finish(ObjectIdentifier(task)) else { return nil }
         let body = capture.body(url: task.currentRequest?.url, status: (task.response as? HTTPURLResponse)?.statusCode,
                                 failed: error != nil) { data, url in
-            if let result = HomeFeedFilter.filter(data, url: url) {
+            let result = HomeFeedFilter.filter(data, url: url, hiddenTitles: hiddenTitles)
+            if let result {
                 writeDebugLog("[HomeFeed] removed=\(result.removed) kept=\(result.kept) bytes=\(data.count)->\(result.data.count)")
-                return result.data
+            } else {
+                // No content, URLs, tokens or playlist titles are logged.
+                writeDebugLog("[HomeFeed] No matching shelf removed, bytes=\(data.count) \(HomeFeedFilter.schemaSummary(data))")
             }
-            // No content, URLs, tokens or playlist titles are logged.
-            writeDebugLog("[HomeFeed] Unrecognized/unchanged response, bytes=\(data.count) \(HomeFeedFilter.schemaSummary(data))")
-            return originalHooksEnabled ? BrowsitaSectionStripper.strip(data, url: url) : nil
+            // Preserve the existing ad pass even when a targeted shelf was removed.
+            let filtered = result?.data ?? data
+            if originalHooksEnabled, let stripped = BrowsitaSectionStripper.strip(filtered, url: url) { return stripped }
+            return result?.data
         }
         return Completion(body: body)
     }
