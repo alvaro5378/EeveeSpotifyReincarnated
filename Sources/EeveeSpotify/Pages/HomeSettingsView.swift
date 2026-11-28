@@ -2,6 +2,7 @@ import SwiftUI
 
 struct HomeSettingsView: View {
     @State private var hidden = Set(UserDefaults.homeHidden)
+    @State private var recommendationsHidden = UserDefaults.homeRecommendationsHidden
 
     private static let rows: [(HomePart, String, Color)] = [
         (.pills, "rectangle.3.group.fill", .blue),
@@ -23,16 +24,23 @@ struct HomeSettingsView: View {
                 toggle(.episodeCarousels, icon: "mic.fill", color: Color(hex: "#30B0C7"))
             }
 
-            SettingsResetSection(visible: !hidden.isEmpty) {
-                hidden = []
+            Section(footer: Text("home_recommendations_footer".localized)) {
+                SettingsToggle(title: "home_recommendations".localized, icon: "rectangle.stack.badge.minus", color: .blue,
+                               isOn: $recommendationsHidden)
             }
 
-            RestartSection(visible: hidden != HomeDeclutter.launchHidden)
+            SettingsResetSection(visible: !hidden.isEmpty || recommendationsHidden) {
+                hidden = []
+                recommendationsHidden = false
+            }
+
+            RestartSection(visible: hidden != HomeDeclutter.launchHidden || recommendationsHidden != HomeFeedResponses.enabled)
 
             SpacerView()
         }
         .eeveeSettingsStyle()
         .onChange(of: hidden) { UserDefaults.homeHidden = HomePart.allCases.filter($0.contains) }
+        .onChange(of: recommendationsHidden) { UserDefaults.homeRecommendationsHidden = $0 }
     }
 
     private func toggle(_ part: HomePart, icon: String, color: Color) -> some View {

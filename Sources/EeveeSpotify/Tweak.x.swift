@@ -28,6 +28,7 @@ func exitApplication() {
 
 // Split so bootstrap patching survives UI hooks breaking on a given Spotify build.
 struct PremiumBootstrapGroup: HookGroup { }
+struct SpotifySessionResponsesGroup: HookGroup { }
 struct PremiumUIHooksGroup: HookGroup { }
 
 struct BasePremiumPatchingGroup: HookGroup { }
@@ -308,6 +309,10 @@ struct EeveeSpotify: Tweak {
                 }
 
                 activateV91ServerSidedReminderIfAvailable()
+            }
+
+            if HomeFeedResponses.originalHooksEnabled || HomeFeedResponses.enabled {
+                SpotifySessionResponsesGroup().activate()
             }
 
             let lyricsEnabled = UserDefaults.lyricsSource.isReplacingLyrics

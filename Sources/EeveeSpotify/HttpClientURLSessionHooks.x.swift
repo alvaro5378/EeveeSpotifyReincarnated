@@ -5,7 +5,7 @@ import Orion
 // bootstrap / customize / PAM responses through this delegate instead — without
 // hooking both, server-rendered free-tier strings slip through.
 class HttpClientURLSessionHook: ClassHook<NSObject>, SpotifySessionDelegate {
-    typealias Group = PremiumBootstrapGroup
+    typealias Group = SpotifySessionResponsesGroup
     static let targetName = "Connectivity_HttpClientKit.HttpClientURLSession"
 
     func URLSession(
@@ -13,6 +13,15 @@ class HttpClientURLSessionHook: ClassHook<NSObject>, SpotifySessionDelegate {
         task: URLSessionDataTask,
         didCompleteWithError error: Error?
     ) {
+        if let completion = HomeFeedResponses.finish(task, error: error) {
+            if let body = completion.body { orig.URLSession(session, dataTask: task, didReceiveData: body) }
+            orig.URLSession(session, task: task, didCompleteWithError: error)
+            return
+        }
+        guard HomeFeedResponses.route(task.currentRequest?.url) == .originalHooks else {
+            orig.URLSession(session, task: task, didCompleteWithError: error)
+            return
+        }
         captureAccessToken(from: task.currentRequest, session: session)
 
         guard let url = task.currentRequest?.url else {
@@ -105,6 +114,12 @@ class HttpClientURLSessionHook: ClassHook<NSObject>, SpotifySessionDelegate {
         didReceiveResponse response: HTTPURLResponse,
         completionHandler handler: @escaping (URLSession.ResponseDisposition) -> Void
     ) {
+        let route = HomeFeedResponses.route(task.currentRequest?.url)
+        if route != .originalHooks {
+            if route == .home { HomeFeedResponses.begin(task) }
+            orig.URLSession(session, dataTask: task, didReceiveResponse: response, completionHandler: handler)
+            return
+        }
         if let url = task.currentRequest?.url, url.isCustomize, response.statusCode == 304 {
             // Warm relaunch: customize revalidates via ETag and returns 304 with no
             // body. The in-memory cache is empty in a fresh process, so fall back to
@@ -154,6 +169,11 @@ class HttpClientURLSessionHook: ClassHook<NSObject>, SpotifySessionDelegate {
         dataTask task: URLSessionDataTask,
         didReceiveData data: Data
     ) {
+        switch HomeFeedResponses.route(task.currentRequest?.url) {
+        case .home: HomeFeedResponses.append(data, for: task); return
+        case .passthrough: orig.URLSession(session, dataTask: task, didReceiveData: data); return
+        case .originalHooks: break
+        }
         guard let url = task.currentRequest?.url else { return }
         if SpotifyResponsePatcher.shouldBlock(url) { return }
         if CasitaResponseProbe.shouldProbe(url) {

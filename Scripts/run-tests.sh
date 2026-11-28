@@ -18,6 +18,9 @@ for main_swift in Tests/*/main.swift; do
 
     extra_sources=()
     case "$suite_name" in
+        HomeFeedFilter)
+            extra_sources+=("Sources/EeveeSpotify/Pages/HomeFeedFilter.swift" "Sources/EeveeSpotify/Pages/HomeFeedCapture.swift")
+            ;;
         HomeRecommendationMatcher)
             extra_sources+=("Sources/EeveeSpotify/Pages/HomeRecommendationMatcher.swift")
             ;;
