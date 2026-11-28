@@ -1,7 +1,8 @@
 import Foundation
 
 // Spotify 9.2.0: ResolvedHome.structure (1) -> HomeStructure.sections (1).
-// Section contains sectionInfo (1) and a feature oneof: shortcuts is field 2.
+// Section contains sectionInfo (1) and a feature oneof: shortcuts is field 2,
+// anchors is field 7. Both quick-access formats are retained.
 // Slot-content responses carry repeated Section directly in field 1.
 // See Tests/HomeFeedFilter/README.md for the client-side schema evidence.
 enum HomeFeedFilter {
@@ -71,7 +72,7 @@ enum HomeFeedFilter {
         for section in sections {
             guard let payload = section.payload,
                   let kind = sectionKind(data.subdata(in: payload)) else { return nil }
-            if kind == 2 { kept += 1 } else { remove.insert(section.range.lowerBound) }
+            if kind == 2 || kind == 7 { kept += 1 } else { remove.insert(section.range.lowerBound) }
         }
         var result = Data()
         for field in fields where !remove.contains(field.range.lowerBound) {

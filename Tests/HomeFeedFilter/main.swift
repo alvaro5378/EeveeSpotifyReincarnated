@@ -55,10 +55,15 @@ require(HomeFeedFilter.filter(wrapped([friday, radio]), url: home)?.data == wrap
 require(HomeFeedFilter.filter(sections([friday, radio]) + metadata, url: slot)?.data == metadata,
         "recommendation-only slot preserves metadata without needing shortcuts on every page")
 
-for kind in UInt64(3)...45 {
+for kind in UInt64(3)...45 where kind != 7 {
     require(HomeFeedFilter.filter(wrapped([shortcuts, section(kind, id: "feature-\(kind)")]), url: home)?.data == wrapped([shortcuts]),
             "remove recognized feature field \(kind)")
 }
+let anchors = section(7, id: "user-anchors", title: "Pinned music")
+require(HomeFeedFilter.filter(wrapped([friday, anchors, shortcuts, radio]), url: home)?.data == wrapped([anchors, shortcuts]),
+        "retain both anchored and regular shortcut formats")
+require(HomeFeedFilter.filter(wrapped([anchors, friday]), url: home)?.data == wrapped([anchors]),
+        "an anchors-only account keeps its top grid")
 let misleading = section(3, id: "mobile-shortcuts-section", title: "spotify.casita.v1.resolved.Shortcuts")
 require(HomeFeedFilter.filter(wrapped([shortcuts, misleading]), url: home)?.data == wrapped([shortcuts]),
         "titles and ID strings cannot turn a recommendation into shortcuts")

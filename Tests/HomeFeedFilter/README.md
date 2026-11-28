@@ -8,7 +8,7 @@ They are not inferred from recommendation titles or raw substring searches.
 | --- | --- |
 | `ResolvedHome` | `structure` = 1; other response fields retained verbatim |
 | `HomeStructure` | repeated `Section` = 1 |
-| `Section` | `sectionInfo` = 1; `shortcuts` feature = 2; other known feature fields through 45 |
+| `Section` | `sectionInfo` = 1; `shortcuts` = 2; `anchors` = 7; feature fields through 45 |
 | `SectionInfo` | `sectionID` string |
 | `GetSlotContentResponse` | repeated `Section`, plus slot type/response metadata |
 
@@ -17,7 +17,9 @@ the message and oneof types. The HomeStructure decoder at 0x102D95414 accepts
 field 1 as repeated Section. ResolvedHome's traversal helper at 0x1075F866C
 visits HomeStructure as field 1. Section's decoder at 0x103607654 dispatches
 field 1 to SectionInfo. Its traversal table at 0x10ACB0C9C dispatches the
-shortcuts enum case to 0x108365A00, which visits Shortcuts as field 2.
+shortcuts enum case to 0x108365A00, which visits Shortcuts as field 2. The
+anchors enum case dispatches to 0x10997AC44, which visits Anchors as field 7.
+Both belong to the Home_AnchorsAndShortcutsKit quick-access surface.
 
 The new option transforms these messages before they enter the UI. It does
 not activate the old broad cell-collapse, frame-maintenance or layout hooks.
