@@ -126,8 +126,9 @@ enum HomeDeclutter {
         guard all.contains("Home_EvoPageImpl") else { return (nil, true) }
         let part = HomePart.allCases.first { hidden.contains($0) && $0.marker.map(all.contains) == true }
         if let part, logged.insert(part).inserted { eeveeLog("[EeveeSpotify][Home] Collapsed %@", part.rawValue) }
-        // Sections fill in after their first pass, so a visible verdict is only final once content has settled.
-        return (part, part != nil || queue.count > 40)
+        // A populated section can still receive more content later. A missing
+        // marker is not a permanent verdict merely because the tree is large.
+        return (part, part != nil)
     }
 }
 
@@ -136,7 +137,9 @@ class HomeSectionCellHook: ClassHook<UICollectionViewCell> {
     static let targetName = "_TtC12Element_List18CollectionViewCell"
 
     func preferredLayoutAttributesFittingAttributes(_ attributes: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutAttributes {
-        let result = orig.preferredLayoutAttributesFittingAttributes(attributes)
+        // Do not mutate attributes shared with Spotify's layout cache. A cell
+        // later reused for music must start from Spotify's own visibility.
+        let result = orig.preferredLayoutAttributesFittingAttributes(attributes).copy() as! UICollectionViewLayoutAttributes
         let part = HomeDeclutter.meter.measure { HomeDeclutter.hiddenSection(for: target) }
         let hidden = part != nil
         if target.clipsToBounds != hidden { target.clipsToBounds = hidden }
@@ -152,7 +155,7 @@ class HomeSectionHeadingHook: ClassHook<UICollectionReusableView> {
     static let targetName = "_TtC12Element_List21SupplementaryItemView"
 
     func preferredLayoutAttributesFittingAttributes(_ attributes: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutAttributes {
-        let result = orig.preferredLayoutAttributesFittingAttributes(attributes)
+        let result = orig.preferredLayoutAttributesFittingAttributes(attributes).copy() as! UICollectionViewLayoutAttributes
         if HomeDeclutter.hidesHeading(in: target) {
             result.size.height = 0
             result.isHidden = true
