@@ -43,6 +43,26 @@ enum HomeFeedFilter {
         return Result(data: rebuilt, kept: result.kept, removed: result.removed)
     }
 
+    // Numeric wire structure only, for diagnosing a new response layout.
+    // Never includes field values, IDs, titles, URLs or raw response bytes.
+    static func schemaSummary(_ data: Data) -> String {
+        guard data.count <= 4 * 1024 * 1024, let root = parse(data) else { return "unparsed" }
+        func summary(_ fields: [Field]) -> String {
+            fields.prefix(12).map { "\($0.number)/\($0.wire)" }.joined(separator: ",")
+        }
+        var output = "root=[\(summary(root))]"
+        var bytes = data
+        var fields = root
+        for level in 1...2 {
+            guard let range = fields.first(where: { $0.number == 1 })?.payload else { break }
+            bytes = bytes.subdata(in: range)
+            guard let child = parse(bytes) else { break }
+            output += " child\(level)=[\(summary(child))]"
+            fields = child
+        }
+        return output
+    }
+
     private static func filterSections(_ data: Data, fields: [Field]) -> Result? {
         let sections = fields.filter { $0.number == 1 }
         guard !sections.isEmpty else { return nil }
@@ -81,6 +101,7 @@ enum HomeFeedFilter {
 
     private struct Field {
         let number: UInt64
+        let wire: UInt64
         let range: Range<Int>
         let payload: Range<Int>?
         let lengthBytes: Int
@@ -113,7 +134,7 @@ enum HomeFeedFilter {
                 cursor += 4
             default: return nil
             }
-            fields.append(Field(number: tag >> 3, range: start..<cursor, payload: payload, lengthBytes: lengthBytes))
+            fields.append(Field(number: tag >> 3, wire: tag & 7, range: start..<cursor, payload: payload, lengthBytes: lengthBytes))
         }
         return fields
     }

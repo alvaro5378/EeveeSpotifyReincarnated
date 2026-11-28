@@ -35,7 +35,7 @@ enum HomeFeedResponses {
                 return result.data
             }
             // No content, URLs, tokens or playlist titles are logged.
-            writeDebugLog("[HomeFeed] Unrecognized/unchanged response, bytes=\(data.count)")
+            writeDebugLog("[HomeFeed] Unrecognized/unchanged response, bytes=\(data.count) \(HomeFeedFilter.schemaSummary(data))")
             return originalHooksEnabled ? BrowsitaSectionStripper.strip(data, url: url) : nil
         }
         return Completion(body: body)

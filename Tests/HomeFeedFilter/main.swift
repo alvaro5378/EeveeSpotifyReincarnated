@@ -37,6 +37,10 @@ let metadata = text(3, "response-id") + varint(8 * 2) + varint(7)
 
 let original = wrapped([friday, shortcuts, radio, charts], metadata: metadata)
 let result = HomeFeedFilter.filter(original, url: home)
+let diagnostics = HomeFeedFilter.schemaSummary(original)
+require(diagnostics.hasPrefix("root=[1/2,3/2,2/0,90/1,91/5]"), "diagnostic field numbers")
+require(!diagnostics.contains("Friday") && !diagnostics.contains("user-shortcuts") && !diagnostics.contains("response-id"),
+        "diagnostics do not expose field contents")
 require(result?.data == wrapped([shortcuts], metadata: metadata), "keep exact shortcut bytes and all response metadata")
 require(result?.removed == 3 && result?.kept == 1, "correct section counts")
 
