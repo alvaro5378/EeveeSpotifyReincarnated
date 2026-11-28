@@ -8,7 +8,6 @@ struct HomePillsGroup: HookGroup {}
 enum HomePart: String, CaseIterable, Codable {
     case shortcuts, promos, previews, dj, pills
     case episodeCarousels = "episode_carousels"
-    case shortcutsOnly = "shortcuts_only"
 
     var marker: String? {
         switch self {
@@ -16,7 +15,7 @@ enum HomePart: String, CaseIterable, Codable {
         case .promos: return "Discovery_PromoElement"
         case .previews: return "Discovery_PreviewElement"
         case .dj: return "Discovery_DJElement"
-        case .episodeCarousels, .shortcutsOnly, .pills: return nil
+        case .episodeCarousels, .pills: return nil
         }
     }
 }
@@ -28,30 +27,25 @@ extension UserDefaults {
     @UserDefault(key: "eeveeHomeEpisodeCarouselsHidden", defaultValue: false)
     private static var homeEpisodeCarouselsHidden
 
-    @UserDefault(key: "eeveeHomeFeedHidden", defaultValue: false)
-    private static var homeFeedHidden
-
     static var homeHidden: [HomePart] {
         get {
             var parts = homeHiddenSections
             if homeEpisodeCarouselsHidden { parts.append(.episodeCarousels) }
-            if homeFeedHidden { parts.append(.shortcutsOnly) }
             return parts
         }
         set {
             homeEpisodeCarouselsHidden = newValue.contains(.episodeCarousels)
-            homeFeedHidden = newValue.contains(.shortcutsOnly)
-            homeHiddenSections = newValue.filter { $0 != .episodeCarousels && $0 != .shortcutsOnly }
+            homeHiddenSections = newValue.filter { $0 != .episodeCarousels }
         }
     }
 }
 
 enum HomeDeclutter {
     static let launchHidden = Set(UserDefaults.homeHidden)
-    // Shortcuts-only filtering happens in the response parser, before any cells exist.
-    static let hidden = launchHidden.subtracting([.shortcutsOnly])
+    // The old eeveeHomeFeedHidden preference is deliberately ignored. The
+    // unstable shortcuts-only experiment is not enabled in this build.
+    static let hidden = launchHidden
     static let meter = PerfMeter("Home][Declutter")
-    private static let videoShelfTitle = "Videos you might like"
     private static let hidesMarkedSections = hidden.contains { $0.marker != nil }
     private static let checksFeedContent = hidden.contains(.episodeCarousels)
     private static var verdictKey: UInt8 = 0
@@ -66,6 +60,13 @@ enum HomeDeclutter {
     }
 
     static func hiddenSection(for cell: UICollectionViewCell) -> HomePart? {
+        // Nested carousel items must retain Spotify's own sizing; collapse
+        // only their containing Home section.
+        var ancestor = cell.superview
+        while let view = ancestor {
+            if view is UICollectionViewCell { return nil }
+            ancestor = view.superview
+        }
         let content = cell.contentView.subviews.first
         if checksFeedContent, let part = classifyFeedContent(content) { return part }
         guard hidesMarkedSections else { return nil }
@@ -79,38 +80,31 @@ enum HomeDeclutter {
     }
 
     private static func classifyFeedContent(_ content: UIView?) -> HomePart? {
-        guard let content, let root = content.subviews.first?.subviews.first else { return nil }
+        guard let content else { return nil }
         let contentType = NSStringFromClass(type(of: content))
         guard contentType.contains("Home_EvoPageImpl"), contentType.contains("HomeStructure") else { return nil }
 
-        // Shelves and shortcuts share the same outer cell. Keep the plain grid used for shortcuts.
-        if let collection = root as? UICollectionView {
-            if collection.accessibilityIdentifier == "ActionCardCarouselElement" {
-                if hidden.contains(.episodeCarousels) { return .episodeCarousels }
-            } else if collection.accessibilityIdentifier?.isEmpty != false,
-                      !NSStringFromClass(type(of: collection)).contains("Home_CarouselKit") {
-                return nil
-            }
+        // Keep the plain shortcut grid. Other Home cards can have additional
+        // wrappers or a nested carousel, so do not assume a two-view path.
+        if let collection = content.subviews.first?.subviews.first as? UICollectionView,
+           collection.accessibilityIdentifier?.isEmpty != false,
+           !NSStringFromClass(type(of: collection)).contains("Home_CarouselKit"),
+           !HomeRecommendationMatcher.isBlockedCard(metadata(collection)) {
+            return nil
         }
-
-        guard hidden.contains(.episodeCarousels), !(root is UICollectionView) else { return nil }
-
-        // A standalone episode preview can be rendered as a card or as a stack with its heading.
-        return root.eeveeFirst(UIView.self) { view in
-            NSStringFromClass(type(of: view)).contains("EpisodeStatusOverMediaPillElementUI")
-                || text(of: view, matches: "Preview episode")
-                || text(of: view, matches: videoShelfTitle)
-        } != nil ? .episodeCarousels : nil
+        return HomeRecommendationMatcher.containsBlockedCard(in: content,
+            children: { $0.subviews }, metadata: metadata) ? .episodeCarousels : nil
     }
 
     static func hidesHeading(in view: UIView) -> Bool {
         guard let heading = PageLookup.find("Components.UI.SectionHeadingHome", in: view) else { return false }
-        return heading.eeveeFirst(UIView.self) { text(of: $0, matches: videoShelfTitle) } != nil
+        return HomeRecommendationMatcher.containsBlockedCard(in: heading,
+            children: { $0.subviews }, metadata: metadata)
     }
 
-    private static func text(of view: UIView, matches title: String) -> Bool {
-        let text = (view as? UILabel)?.text ?? view.accessibilityLabel
-        return text?.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare(title) == .orderedSame
+    private static func metadata(_ view: UIView) -> HomeRecommendationMatcher.Metadata {
+        .init(className: NSStringFromClass(type(of: view)), identifier: view.accessibilityIdentifier,
+              text: (view as? UILabel)?.text ?? view.accessibilityLabel)
     }
 
     private static func classify(_ cell: UICollectionViewCell) -> (part: HomePart?, final: Bool) {
@@ -125,9 +119,8 @@ enum HomeDeclutter {
         while index < queue.count {
             let view = queue[index]
             index += 1
-            if view !== cell, view is UICollectionView { view.layoutIfNeeded() }
             names.append(NSStringFromClass(type(of: view)))
-            queue += view.subviews
+            if queue.count < 512 { queue += view.subviews.prefix(512 - queue.count) }
         }
         let all = names.joined()
         guard all.contains("Home_EvoPageImpl") else { return (nil, true) }
